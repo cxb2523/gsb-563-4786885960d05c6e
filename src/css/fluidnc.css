@@ -1,0 +1,35 @@
+/*
+ * FluidNC WebUI extension. The WebUI copies its own stylesheets into the extension's
+ * iframe (after ours) and adds .body-extension to the body. viewer.css scopes its rules
+ * under .vw, which outranks the WebUI's element and single-class rules; these cover
+ * the page itself.
+ */
+
+html,
+body.body-extension,
+html body.vw-body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: var(--vw-bg) !important;
+    color: var(--vw-text) !important;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+/* The WebUI's form styles (Spectre) on bare elements */
+.vw input[type="checkbox"] {
+    position: static !important;
+    opacity: 1 !important;
+    clip: auto !important;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+}
+
+.vw .vw-tab,
+.vw .vw-seg button,
+.vw .vw-section-head,
+.vw .file-item {
+    box-shadow: none;
+    text-transform: none;
+    letter-spacing: normal;
+}

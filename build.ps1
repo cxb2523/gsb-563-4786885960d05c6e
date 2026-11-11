@@ -1,0 +1,348 @@
+# Build script for GCode Visualizer
+# Minifies and compresses the source files
+
+Write-Host "Building GCode Visualizer..." -ForegroundColor Cyan
+
+# Create dist directory
+$distDir = "dist"
+if (Test-Path $distDir) {
+    Remove-Item $distDir -Recurse -Force
+}
+New-Item -ItemType Directory -Path $distDir | Out-Null
+New-Item -ItemType Directory -Path "$distDir/figui-plugin" | Out-Null
+
+# Check if terser is installed
+$terserInstalled = $null -ne (Get-Command terser -ErrorAction SilentlyContinue)
+if (-not $terserInstalled) {
+    Write-Host "Terser not found. Installing..." -ForegroundColor Yellow
+    npm install -g terser
+}
+
+# Version: the VERSION file is the one source for everything built here (set it with
+# tools\set-version.ps1). The VS Code extension's package.json must match it.
+$versionNumber = (Get-Content "VERSION" -Raw).Trim()
+if ($versionNumber -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Host "VERSION must hold a version like 0.6.0, not '$versionNumber'" -ForegroundColor Red
+    exit 1
+}
+$version = "v$versionNumber"
+$extVersion = (Get-Content "vscode-extension/package.json" -Raw | ConvertFrom-Json).version
+if ($extVersion -ne $versionNumber) {
+    Write-Host "vscode-extension/package.json is $extVersion but VERSION is $versionNumber - run .\tools\set-version.ps1 $versionNumber" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Version: $version" -ForegroundColor Green
+
+# Build configurations
+$builds = @(
+    @{
+        Name = "FluidNC Extension"
+        SourceHtml = "src/gcodeviewer-fluidnc.html"
+        OutputName = "gcodeviewer"
+        DeleteHtmlAfterGzip = $true
+        JsFiles = @(
+            "src/js/prefs.js",
+            "src/js/viewer-ui.js",
+            "src/js/fluidnc-api.js",
+            "src/js/gcode-expander.js",
+            "src/js/parser.js",
+            "src/js/camera.js",
+            "src/js/renderer2d.js",
+            "src/js/stock-sim.js",
+            "src/js/renderer3d.js",
+            "src/js/animator.js",
+            "src/js/controller.js",
+            "src/js/fluidnc-controller.js"
+        )
+        ScriptTags = @"
+    <script src="js/prefs.js"></script>
+    <script src="js/viewer-ui.js"></script>
+    <script src="js/fluidnc-api.js"></script>
+    <script src="js/gcode-expander.js"></script>
+    <script src="js/parser.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/renderer2d.js"></script>
+    <script src="js/stock-sim.js"></script>
+    <script src="js/renderer3d.js"></script>
+    <script src="js/animator.js"></script>
+    <script src="js/controller.js"></script>
+    <script src="js/fluidnc-controller.js"></script>
+"@
+    },
+    @{
+        Name = "Standalone Version"
+        SourceHtml = "src/gcodeviewer.html"
+        OutputName = "gcodeviewer"
+        SkipGzip = $true
+        JsFiles = @(
+            "src/js/prefs.js",
+            "src/js/viewer-ui.js",
+            "src/js/gcode-expander.js",
+            "src/js/parser.js",
+            "src/js/camera.js",
+            "src/js/renderer2d.js",
+            "src/js/stock-sim.js",
+            "src/js/renderer3d.js",
+            "src/js/animator.js",
+            "src/js/controller.js"
+        )
+        ScriptTags = @"
+    <script src="js/prefs.js"></script>
+    <script src="js/viewer-ui.js"></script>
+    <script src="js/gcode-expander.js"></script>
+    <script src="js/parser.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/renderer2d.js"></script>
+    <script src="js/stock-sim.js"></script>
+    <script src="js/renderer3d.js"></script>
+    <script src="js/animator.js"></script>
+    <script src="js/controller.js"></script>
+"@
+    },
+    @{
+        Name = "FigUI Plugin"
+        SourceHtml = "src/gcodeviewer-figui.html"
+        OutputName = "figui-plugin/index"
+        SkipGzip = $true
+        JsFiles = @(
+            "src/js/prefs.js",
+            "src/js/viewer-ui.js",
+            "src/js/figui-api.js",
+            "src/js/gcode-expander.js",
+            "src/js/parser.js",
+            "src/js/camera.js",
+            "src/js/renderer2d.js",
+            "src/js/stock-sim.js",
+            "src/js/renderer3d.js",
+            "src/js/animator.js",
+            "src/js/controller.js",
+            "src/js/fluidnc-controller.js",
+            "src/js/figui-controller.js"
+        )
+        ScriptTags = @"
+    <script src="js/prefs.js"></script>
+    <script src="js/viewer-ui.js"></script>
+    <script src="js/figui-api.js"></script>
+    <script src="js/gcode-expander.js"></script>
+    <script src="js/parser.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/renderer2d.js"></script>
+    <script src="js/stock-sim.js"></script>
+    <script src="js/renderer3d.js"></script>
+    <script src="js/animator.js"></script>
+    <script src="js/controller.js"></script>
+    <script src="js/fluidnc-controller.js"></script>
+    <script src="js/figui-controller.js"></script>
+"@
+        CssFiles = @("src/css/common.css", "src/css/viewer.css", "src/css/figui.css")
+    },
+    @{
+        Name = "Font Creator"
+        SourceHtml = "src/fontcreator.html"
+        OutputName = "fontcreator"
+        SkipGzip = $true
+        JsFiles = @(
+            "src/js/prefs.js",
+            "src/js/parser.js",
+            "src/js/camera.js",
+            "src/js/renderer2d.js",
+            "src/js/renderer3d.js",
+            "src/js/animator.js",
+            "src/js/controller.js",
+            "src/js/font-creator-controller.js",
+            "src/js/font-creator-app.js"
+        )
+        ScriptTags = @"
+    <script src="js/prefs.js"></script>
+    <script src="js/parser.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/renderer2d.js"></script>
+    <script src="js/renderer3d.js"></script>
+    <script src="js/animator.js"></script>
+    <script src="js/controller.js"></script>
+    <script src="js/font-creator-controller.js"></script>
+    <script src="js/font-creator-app.js"></script>
+"@
+        CssFiles = @("src/css/common.css", "src/css/font-creator.css")
+    }
+)
+
+foreach ($build in $builds) {
+    Write-Host "`nBuilding $($build.Name)..." -ForegroundColor Cyan
+    
+    # Copy and process HTML
+    Write-Host "Processing HTML..." -ForegroundColor Cyan
+    # Normalize line endings so ScriptTags match source HTML saved with either LF or CRLF
+    $html = (Get-Content $build.SourceHtml -Raw) -replace "`r`n", "`n"
+    $html = $html -replace '{{VERSION}}', $version
+
+    # Inline CSS
+    Write-Host "Inlining CSS..." -ForegroundColor Cyan
+    
+    # Use custom CSS files if specified, otherwise default to common.css and fluidnc.css
+    $cssFiles = if ($build.CssFiles) { $build.CssFiles } else { @("src/css/common.css", "src/css/viewer.css", "src/css/fluidnc.css") }
+    
+    foreach ($cssFile in $cssFiles) {
+        if (Test-Path $cssFile) {
+            $cssContent = Get-Content $cssFile -Raw
+            # Remove CSS comments
+            $cssContent = $cssContent -replace '/\*[\s\S]*?\*/', ''
+            # Remove extra whitespace
+            $cssContent = $cssContent -replace '\s+', ' ' -replace '\s*([{}:;,])\s*', '$1'
+            
+            $cssFileName = Split-Path $cssFile -Leaf
+            $cssLink = "<link rel=`"stylesheet`" href=`"css/$cssFileName`">"
+            
+            if ($html -match [regex]::Escape($cssLink)) {
+                $inlineStyle = "<style>$cssContent</style>"
+                $html = $html -replace [regex]::Escape($cssLink), $inlineStyle
+            }
+        }
+    }
+
+    # Inline and minify JavaScript
+    Write-Host "Minifying JavaScript..." -ForegroundColor Cyan
+    
+    $tempName = $build.OutputName -replace '[\/]', '_'
+    $tempCombined = "dist/temp_combined_$tempName.js"
+    $combinedContent = ""
+    foreach ($file in $build.JsFiles) {
+        if (Test-Path $file) {
+            $combinedContent += Get-Content $file -Raw
+            $combinedContent += "`n`n"
+        }
+    }
+    Set-Content -Path $tempCombined -Value $combinedContent
+
+    # Minify combined JS
+    $minJsFile = "dist/$tempName.min.js"
+    terser $tempCombined --compress passes=3 --mangle --output $minJsFile
+    Remove-Item $tempCombined
+
+    $minifiedJs = Get-Content $minJsFile -Raw
+
+    # Replace script tags with inline minified JS
+    $inlineScript = "<script>$minifiedJs</script>"
+    $scriptTags = $build.ScriptTags -replace "`r`n", "`n"
+    $html = $html.Replace($scriptTags, $inlineScript)  # literal: minified JS contains $ sequences
+
+    # Minify HTML - remove comments and extra whitespace
+    $html = $html -replace '<!--[\s\S]*?-->', ''
+    $html = $html -replace '>\s+<', '><'
+    $html = $html -replace '\s{2,}', ' '
+
+    # Save final HTML
+    $outputHtml = "dist/$($build.OutputName).html"
+    Set-Content -Path $outputHtml -Value $html
+
+    # Calculate sizes
+    $originalSize = 0
+    foreach ($file in $build.JsFiles) {
+        if (Test-Path $file) {
+            $originalSize += (Get-Item $file).Length
+        }
+    }
+    $originalSize += (Get-Item $build.SourceHtml).Length
+
+    $minifiedSize = (Get-Item $outputHtml).Length
+
+    # Compress with gzip (only for FluidNC extension)
+    if (-not $build.SkipGzip) {
+        Write-Host "Compressing with gzip..." -ForegroundColor Cyan
+        $compressedFile = "$outputHtml.gz"
+
+        $fileStream = [System.IO.File]::OpenRead($outputHtml)
+        $outputStream = [System.IO.File]::Create($compressedFile)
+        $gzipStream = New-Object System.IO.Compression.GZipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
+
+        $fileStream.CopyTo($gzipStream)
+
+        $gzipStream.Close()
+        $outputStream.Close()
+        $fileStream.Close()
+
+        $gzipSize = (Get-Item $compressedFile).Length
+        $compressionRatio = [math]::Round(($gzipSize / $minifiedSize) * 100, 2)
+        
+        # Delete the .html file if requested (for FluidNC - we only want the .gz)
+        if ($build.DeleteHtmlAfterGzip) {
+            Remove-Item $outputHtml -ErrorAction SilentlyContinue
+            Write-Host "Deleted $outputHtml (keeping only .gz)" -ForegroundColor Yellow
+        }
+    }
+
+    # Report
+    Write-Host "`n$($build.Name) Build Complete!" -ForegroundColor Green
+    Write-Host "  Output: $outputHtml" -ForegroundColor Yellow
+    Write-Host "  Original size: $([math]::Round($originalSize/1KB, 2)) KB"
+    Write-Host "  Minified size: $([math]::Round($minifiedSize/1KB, 2)) KB"
+    
+    # Only show compression info if gzipped
+    if (-not $build.SkipGzip) {
+        Write-Host "  Compressed size: $([math]::Round($gzipSize/1KB, 2)) KB (gzip)"
+        Write-Host "  Compression ratio: $compressionRatio%"
+    }
+
+    # Clean up temp file
+    Remove-Item $minJsFile -ErrorAction SilentlyContinue
+}
+
+# FigUI plugin folder: the built page, its manifest (with this version) and icon.
+# Install it in FigUI (Plugins > Add, choosing the folder) or copy it to /sd/plugins/.
+$pluginVersion = $versionNumber
+(Get-Content "figui-plugin/plugin.json" -Raw) -replace '\{\{PLUGIN_VERSION\}\}', $pluginVersion |
+    Set-Content "$distDir/figui-plugin/plugin.json" -NoNewline
+Copy-Item "figui-plugin/icon.png" "$distDir/figui-plugin/icon.png"
+Copy-Item "figui-plugin/README.md" "$distDir/figui-plugin/README.md"
+Compress-Archive -Path "$distDir/figui-plugin" -DestinationPath "$distDir/figui-plugin.zip" -Force
+Write-Host "FigUI plugin: $distDir/figui-plugin and figui-plugin.zip (version $pluginVersion)" -ForegroundColor Yellow
+
+Write-Host "`nAll builds completed successfully!" -ForegroundColor Green
+
+# Create .nojekyll file for GitHub Pages
+Write-Host "Creating .nojekyll file..." -ForegroundColor Cyan
+New-Item -Path "dist/.nojekyll" -ItemType File -Force | Out-Null
+
+# Copy landing page to dist for GitHub Pages
+Write-Host "Copying index.html landing page for GitHub Pages..." -ForegroundColor Cyan
+(Get-Content "src/index.html" -Raw) -replace '{{VERSION}}', $version | Set-Content "dist/index.html" -NoNewline
+Copy-Item -Path "docs/viewer-desktop.png", "docs/viewer-phone.png" -Destination "dist"
+# Demo files for gcodeviewer.html?demo (and its "Try the demo file" button)
+New-Item -ItemType Directory -Force -Path "dist/demo" | Out-Null
+Copy-Item -Path "examples/viewer-demo/*.nc" -Destination "dist/demo"
+Copy-Item -Path "examples/viewer-demo/demo.json" -Destination "dist/demo"
+
+# Package the VS Code extension (.vsix) for "Install from VSIX..."
+# It is staged under dist/ so the viewer files it needs from src/ can be added
+# without touching the vscode-extension/ folder.
+Write-Host "`nPackaging VS Code extension..." -ForegroundColor Cyan
+$extStage = "dist/vscode-extension-stage"
+Copy-Item -Path "vscode-extension" -Destination $extStage -Recurse
+
+# The viewer webview and the expander load these from viewer/ (same list as install-vscode-extension.ps1)
+$viewerDir = "$extStage/viewer"
+New-Item -ItemType Directory -Force -Path $viewerDir | Out-Null
+"prefs.js", "viewer-ui.js", "gcode-expander.js", "parser.js", "camera.js", "renderer2d.js", "stock-sim.js", "renderer3d.js", "animator.js", "controller.js" | ForEach-Object {
+    Copy-Item "src/js/$_" $viewerDir
+}
+"common.css", "viewer.css" | ForEach-Object { Copy-Item "src/css/$_" $viewerDir }
+
+$extManifest = Get-Content "$extStage/package.json" -Raw | ConvertFrom-Json
+$vsixName = "cnc-gcode-tools-$($extManifest.version).vsix"
+Push-Location $extStage
+try {
+    npx --yes @vscode/vsce@3 package --out "../$vsixName"
+    $vsceExit = $LASTEXITCODE
+} finally {
+    Pop-Location
+}
+Remove-Item $extStage -Recurse -Force
+if ($vsceExit -ne 0) {
+    Write-Host "VS Code extension packaging failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  Output: dist/$vsixName ($([math]::Round((Get-Item "dist/$vsixName").Length/1KB, 2)) KB)" -ForegroundColor Yellow
+
+# Fixed-name copy so the GitHub Pages landing page can always link to the latest
+Copy-Item "dist/$vsixName" "dist/cnc-gcode-tools.vsix"
